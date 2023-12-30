@@ -1,0 +1,617 @@
+
+
+
+## show subject of cert
+openssl x509 -subject -nameopt RFC2253 -noout -in [].pem
+
+
+cd /opt/elk
+cd ssl 
+./ssl-gen.sh
+cd ..
+cp opensearch-1.yml /var/lib/docker/volumes/elk_opensearch-data1-config/_data/config/opensearch.yml 
+cp opensearch-2.yml /var/lib/docker/volumes/elk_opensearch-data2-config/_data/config/opensearch.yml 
+cp opensearch-3.yml /var/lib/docker/volumes/elk_opensearch-data3-config/_data/config/opensearch.yml
+cd ssl 
+cp *.pem /var/lib/docker/volumes/elk_opensearch-data1-config/_data/config/
+cp *.pem /var/lib/docker/volumes/elk_opensearch-data2-config/_data/config/
+cp *.pem /var/lib/docker/volumes/elk_opensearch-data3-config/_data/config/
+
+chown -R 1000.1000 /var/lib/docker/volumes/elk_opensearch-data1-config/_data/config/
+chown -R 1000.1000 /var/lib/docker/volumes/elk_opensearch-data2-config/_data/config/
+chown -R 1000.1000 /var/lib/docker/volumes/elk_opensearch-data3-config/_data/config/
+
+
+
+sh plugins/opensearch-security/tools/securityadmin.sh  -backup ./backup -cd plugins/opensearch-security/securityconfig/ -icl -nhnv -cacert config/root-ca.pem -cert config/admin.pem -key config/admin-key.pem 
+
+
+### SYSLOG
+
+
+        udp {
+                type => "syslog"
+                port => 5045
+                codec => "json"                                                                          
+
+        }
+
+
+if [type] == "syslog" {
+        elasticsearch {
+                hosts => ["https://opensearch-node1:9200", "https://opensearch-node2:9200", "https://opensearch-node3:9200"]
+                ssl => true
+                ssl_certificate_verification => false
+                user => admin
+                password => admin
+                index => "%{type}-log-%{+YYYY.MM.dd}"
+        } # end of elastic
+
+} 
+
+
+
+###nginx
+
+log_format custom '$host - $remote_addr - $remote_user [$time_local] - '
+'"$request" $status $body_bytes_sent - '
+'"$http_referer" "$http_user_agent" - '
+'cache: $upstream_cache_status [$time_local] - '
+'content_type: $sent_http_content_type';
+
+
+        access_log /var/log/nginx/access.log custom;
+        error_log /var/log/nginx/error.log;
+
+
+  
+  
+# ============================== Filebeat inputs ===============================
+
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /var/log/nginx/access.log*
+  exclude_files: ['.gz$']
+  fields:
+    type: access
+  fields_under_root: true
+
+- type: log
+  enabled: true
+  paths:
+    - /var/log/nginx/error.log*
+  exclude_files: ['.gz$']
+  fields:
+    type: error
+  fields_under_root: true
+
+# ============================== Filebeat modules ==============================
+
+filebeat.config.modules:
+  # Glob pattern for configuration loading
+  path: ${path.config}/modules.d/*.yml
+
+  # Set to true to enable config reloading
+  reload.enabled: false
+
+  # Period on which files under path should be checked for changes
+  #reload.period: 10s
+
+# ================================== Outputs ===================================
+
+# ------------------------------ Logstash Output -------------------------------
+output.logstash:
+  hosts: ["localhost:5044"]
+
+# ================================= Processors =================================
+processors:
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+  - add_cloud_metadata: ~
+  - add_docker_metadata: ~
+  - add_kubernetes_metadata: ~
+
+# ================================= Logging =================================
+
+logging.level: error
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  name: filebeat
+  keepfiles: 7
+  permissions: 0640
+
+
+  
+  
+  
+input {
+        beats {
+                type => "beats"
+                port => 5044
+        }
+}
+
+
+filter {
+  if "access" in [type] {
+    grok { 
+      match => { "message" => '%{IPORHOST:host_name} - %{IPV4:remote_ip} - %{DATA:user_name} \[%{HTTPDATE:access_time}\] - "%{WORD:http_method} %{DATA:url} HTTP/%{NUMBER:http_version}" %{NUMBER:response_code} %{NUMBER:body_sent_bytes} - "%{DATA:referrer}" "%{DATA:user_agent}" - cache: %{DATA:cache_status} \[%{HTTPDATE:time_local}\] - content_type: %{DATA:content_type}$' } 
+      remove_field => "message"
+    } 
+
+
+  } 
+ 
+ else if "error" in [type] { 
+    grok { 
+      match => { "message" => '%{YEAR}/%{MONTHNUM}/%{MONTHDAY} %{TIME} \[%{LOGLEVEL:level}\] %{INT:process_id}#%{INT:thread_id}: \*(%{INT:connection_id})? %{GREEDYDATA:description}' } 
+      remove_field => "message"
+    } 
+  } 
+}
+
+
+output {
+        elasticsearch {
+                hosts => ["https://opensearch-node1:9200", "https://opensearch-node2:9200", "https://opensearch-node3:9200"]
+                ssl => true
+                ssl_certificate_verification => false
+                user => admin
+                password => admin
+                index => "%{[@metadata][beat]}-%{[host][hostname]}-%{[@metadata][version]}-%{+YYYY.MM.dd}"
+        } # end of elastic
+} # end of output
+
+
+
+######
+    grok { 
+      patterns_dir => '/opt/logstash/patterns'
+      match => { "message" => '%{NGINXERR}' } 
+      remove_field => "message"
+    } 
+
+
+
+NGINXERR %{YEAR}/%{MONTHNUM}/%{MONTHDAY} %{TIME} \[%{LOGLEVEL:level}\] %{INT:process_id}#%{INT:thread_id}: \*(%{INT:connection_id})? %{GREEDYDATA:description}
+
+#######
+    
+
+
+
+### GEO
+
+      - type: bind
+        source: ./logstash/geo/GeoLite2-City.mmdb
+        target: /opt/logstash/vendor/bundle/jruby/2.5.0/gems/logstash-filter-geoip-6.0.3-java/vendor/GeoLite2-City.mmdb
+
+        
+        
+
+input {
+        beats {
+                type => "beats"
+                port => 5044
+        }
+}
+
+
+filter {
+  if "access" in [type] {
+    grok { 
+      match => { "message" => '%{IPORHOST:host_name} - %{IPV4:remote_ip} - %{DATA:user_name} \[%{HTTPDATE:access_time}\] - "%{WORD:http_method} %{DATA:url} HTTP/%{NUMBER:http_version}" %{NUMBER:response_code} %{NUMBER:body_sent_bytes} - "%{DATA:referrer}" "%{DATA:user_agent}" - cache: %{DATA:cache_status} \[%{HTTPDATE:time_local}\] - content_type: %{DATA:content_type}$' } 
+      remove_field => "message"
+    } 
+
+
+
+  } 
+ 
+ else if "error" in [type] { 
+    grok { 
+      match => { "message" => '%{YEAR}/%{MONTHNUM}/%{MONTHDAY} %{TIME} \[%{LOGLEVEL:level}\] %{INT:process_id}#%{INT:thread_id}: \*(%{INT:connection_id})? %{GREEDYDATA:description}' } 
+      remove_field => "message"
+    } 
+  } 
+}
+
+
+output {
+        elasticsearch {
+                hosts => ["https://opensearch-node1:9200", "https://opensearch-node2:9200", "https://opensearch-node3:9200"]
+                ssl => true
+                ssl_certificate_verification => false
+                user => admin
+                password => admin
+                index => "%{[@metadata][beat]}-%{[host][hostname]}-%{[@metadata][version]}-%{+YYYY.MM.dd}"
+        } # end of elastic
+} # end of output
+
+
+
+
+
+
+### Multi pipeline logstash
+
+
+- pipeline.id: elastic
+  queue.type: persisted
+  pipeline.workers: 6
+  pipeline.batch.size: 1000
+  path.config: "/usr/share/logstash/pipeline/99-output-es.conf"
+- pipeline.id: file
+  queue.type: persisted
+  pipeline.workers: 4
+  pipeline.batch.size: 1000
+  path.config: "/usr/share/logstash/pipeline/99-output-file.conf"
+
+  
+00
+output { pipeline { send_to => ["es-out", "file-out"] } }
+
+99-es
+
+input { 
+        pipeline { address => "es-out" }
+}
+
+
+output {
+if [type] == "syslog-elk" {
+        elasticsearch {
+                hosts => ["https://opensearch-node1:9200", "https://opensearch-node2:9200", "https://opensearch-node3:9200"]
+                ssl => true
+                ssl_certificate_verification => false
+                user => admin
+                password => admin
+                index => "%{type}-log-%{+YYYY.MM.dd}"
+        } # end of elastic
+
+} # end of if
+else {
+        elasticsearch {
+                hosts => ["https://opensearch-node1:9200", "https://opensearch-node2:9200", "https://opensearch-node3:9200"]
+                ssl => true
+                ssl_certificate_verification => false
+                user => admin
+                password => admin
+                index => "%{[@metadata][beat]}-%{[host][hostname]}-%{+YYYY.MM.dd}"
+                #index => "%{[@metadata][beat]}-%{[host][hostname]}-%{[@metadata][version]}-%{+YYYY.MM.dd}"
+        } # end of elastic
+} # end of else
+
+} # end of output
+
+
+
+
+99=file
+
+input { 
+        pipeline { address => "file-out" }
+}
+
+output { 
+
+ file {
+   path => "/data/%{type}.log"
+ }
+
+}
+
+
+
+
+### security 
+
+plugins/opensearch-security/tools/hash.sh
+
+plugins/opensearch-security/securityconfig/internal_users.yml
+
+#change plugins/opensearch-security/securityconfig/internal_users.yml in  all master nodes
+
+#run command on node1 [master]
+sh plugins/opensearch-security/tools/securityadmin.sh  -backup ./backup -cd plugins/opensearch-security/securityconfig -icl -nhnv -cacert config/root-ca.pem -cert config/admin.pem -key config/admin-key.pem 
+
+
+
+
+
+### GEO
+
+default path - > /opt/logstash/vendor/bundle/jruby/2.5.0/gems/logstash-filter-geoip-6.0.3-java/vendor/GeoLite2-City.mmdb
+
+
+        source: ./logstash/geo/GeoLite2-City.mmdb
+        target: /usr/share/logstash/GeoLite2-City.mmdb
+
+
+
+
+    geoip {
+       database => '/usr/share/logstash/GeoLite2-City.mmdb'
+       source => "remote_ip"
+       target => "client_geo"
+       fields => [ "country_name", "ip" ] 
+    }
+
+
+
+### ISM
+
+https://www.alibabacloud.com/blog/allocate-indexes-to-hot-and-warm-nodes-in-elasticsearch-through-shard-filtering_597456
+
+
+{
+    "policy": {
+        "policy_id": "hot-wam-delete",
+        "description": "",
+        "default_state": "hot",
+        "states": [
+            {
+                "name": "hot",
+                "actions": [
+                    {
+                        "replica_count": {
+                            "number_of_replicas": 0
+                        }
+                    },
+                    {
+                        "allocation": {
+                            "require": {
+                                "temp": "hot"
+                            },
+                            "wait_for": false
+                        }
+                    }
+                ],
+                "transitions": [
+                    {
+                        "state_name": "warm",
+                        "conditions": {
+                            "min_index_age": "2d"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "warm",
+                "actions": [
+                    {
+                        "allocation": {
+                            "require": {
+                                "temp": "warm"
+                            },
+                            "wait_for": false
+                        }
+                    },
+                    {
+                        "replica_count": {
+                            "number_of_replicas": 1
+                        }
+                    }
+                ],
+                "transitions": [
+                    {
+                        "state_name": "delete",
+                        "conditions": {
+                            "min_index_age": "7d"
+                        }
+                    }
+                ]
+            },
+            {
+                "name": "delete",
+                "actions": [
+                    {
+                        "delete": {}
+                    }
+                ],
+                "transitions": []
+            }
+        ],
+        "ism_template": {
+            "index_patterns": [
+                "logstash-*"
+            ],
+            "priority": 100
+        }
+    }
+}
+
+
+### network monitoring
+
+https://packages.ntop.org/apt-stable/
+
+apt install pfring
+
+ip link set $IFACE promisc on
+
+
+
+[manager]
+type=manager
+host=localhost
+#
+[proxy-1]
+type=proxy
+host=localhost
+#
+[worker-1]
+type=worker
+host=localhost
+interface=ens160
+lb_method=pf_ring 
+lb_procs=3
+
+
+
+
+/opt/zeek/share/zeek/site/local.zeek
+@load policy/tuning/json-logs.zeek
+
+
+
+
+
+filebeat
+
+filebeat.inputs:
+
+# Each - is an input. Most options can be set at the input level, so
+# you can use different inputs for various configurations.
+# Below are the input specific configurations.
+
+- type: log
+
+  # Change to true to enable this input configuration.
+  enabled: true
+
+  # Paths that should be crawled and fetched. Glob based paths.
+  paths:
+    - /opt/zeek/logs/current/conn.log*
+  json.keys_under_root: true
+  json.add_error_key: true
+
+
+# ================================== Logging ===================================
+
+logging.level: error
+
+logging.to_files: true
+logging.files:
+  path: /var/log/filebeat
+  keepfiles: 7
+  permissions: 0640
+
+# ---------------------------- Elasticsearch Output ----------------------------
+output.logstash:
+        hosts: [":5044"]
+
+# ================================= Processors =================================
+processors:
+  - drop_fields:
+      fields: ["agent.ephemeral_id", "agent.hostname", "agent.id", "agent.type", "agent.version", "agent.name", "ecs.version", "input.type", "histroy", "log.offset", "version", "host.architecture", "host.containerized", "host.hostname", "host.id", "host.ip", "host.mac", "host.name", "host.os.codename", "host.os.family", "host.os.kernel", "host.os.name", "host.os.platform", "host.os.version", "log.file.path", "log.file.path", "tags", "type", "tunnel_parents" ]
+  - add_host_metadata:
+      when.not.contains.tags: forwarded
+  - add_cloud_metadata: ~
+  - add_docker_metadata: ~
+  - add_kubernetes_metadata: ~
+
+
+  
+  
+#Convert
+
+
+https://discuss.elastic.co/t/how-to-get-number-type-by-using-grok/150084
+grok -- >  %{NUMBER:num:int}
+
+    mutate {
+      convert => { "body_sent_bytes" => "integer" }
+    } 
+   
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+#extra
+    
+    
+    
+    PUT _cluster/settings
+{
+  "transient": {
+    "cluster.routing.allocation.disk.watermark.low": "80%",
+    "cluster.routing.allocation.disk.watermark.high": "85%"
+  }
+}
+
+
+    
+    
+    
+    
+    
+    
+    
+    
+### alerting
+
+
+https://kb.synology.com/en-global/SRM/tutorial/How_to_use_Gmail_SMTP_server_to_send_emails_for_SRM
+
+
+echo [user_name]  | /usr/share/opensearch/bin/opensearch-keystore add --stdin plugins.alerting.destination.email.<sender_name>.username
+echo [password]   | /usr/share/opensearch/bin/opensearch-keystore add --stdin plugins.alerting.destination.email.<sender_name>.password
+
+
+
+
+{
+    "size": 1000,
+    "query": {
+        "bool": {
+            "filter": [
+                {
+                    "range": {
+                        "@timestamp": {
+                            "from": "{{period_end}}||-1m",
+                            "to": "{{period_end}}",
+                            "include_lower": true,
+                            "include_upper": true,
+                            "format": "epoch_millis",
+                            "boost": 1
+                        }
+                    }
+                },
+                {
+                    "match_phrase": {
+                        "FIELD": {
+                            "query": "*MSG*",
+                            "slop": 0,
+                            "zero_terms_query": "NONE",
+                            "boost": 1
+                        }
+                    }
+                }
+            ],
+            "adjust_pure_negative": true,
+            "boost": 1
+        }
+    },
+    "aggregations": {}
+}
+
+
+
+
+
+
+Monitor {{ctx.monitor.name}} just entered alert status. Please investigate the issue.
+- Trigger: {{ctx.trigger.name}}
+- Severity: {{ctx.trigger.severity}}
+- Period start: {{ctx.periodStart}}
+- Period end: {{ctx.periodEnd}}
+- Total Logs Number: {{ctx.results.0.hits.total.value}}
+- Total logs: {{ctx.results.0}}
+
+
+
+
+
+
