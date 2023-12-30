@@ -1,0 +1,308 @@
+# Build for ELK-Stack
+# Last modify 2023/12/30
+# Version 1.4
+
+version: "3.9"
+
+networks:
+  sina-network:
+
+volumes:
+  elasticsearch-1_data:
+  elasticsearch-2_data:
+  elasticsearch-3_data:
+  logstash_data:
+  kibana_data:
+  filebeat_data:
+  packetbeat_data:
+  metricbeat_data:
+  auditbeat_data:
+  apm-server_data:
+  heartbeat_data:
+
+services:
+  elasticsearch-1:
+    container_name: elasticsearch-1
+    image: repo.sinacomsys.local:8082/general/elasticsearch:7.17.16
+    hostname: elasticsearch-1
+    environment:
+      - ELASTIC_USERNAME=elastic
+      - ELASTIC_PASSWORD=elastic
+    networks:
+      - sina-network
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./config/elasticsearch-1.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - elasticsearch-1_data:/usr/share/elasticsearch/data
+    ports:
+      - 9106:9200
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-I", "http://localhost:9200"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 1m
+
+  elasticsearch-2:
+    container_name: elasticsearch-2
+    image: repo.sinacomsys.local:8082/general/elasticsearch:7.17.16
+    hostname: elasticsearch-2
+    environment:
+      - ELASTIC_USERNAME=elastic
+      - ELASTIC_PASSWORD=elastic
+    networks:
+      - sina-network
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./config/elasticsearch-2.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - elasticsearch-2_data:/usr/share/elasticsearch/data
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-I", "http://localhost:9200"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 1m
+
+  elasticsearch-3:
+    container_name: elasticsearch-3
+    image: repo.sinacomsys.local:8082/general/elasticsearch:7.17.16
+    hostname: elasticsearch-3
+    environment:
+      - ELASTIC_USERNAME=elastic
+      - ELASTIC_PASSWORD=elastic
+    networks:
+      - sina-network
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./config/elasticsearch-3.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - elasticsearch-3_data:/usr/share/elasticsearch/data
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-I", "http://localhost:9200"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 1m
+
+  kibana:
+    container_name: kibana
+    image: repo.sinacomsys.local:8082/general/kibana:7.17.16
+    depends_on:
+      - elasticsearch-1
+    hostname: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch-1:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=elastic
+      - KIBANA_HOST=http://192.168.5.29:9107
+    networks:
+      - sina-network
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./config/kibana.yml:/usr/share/kibana/configkibana.yml
+      - kibana_data:/usr/share/kibana/data
+    ports:
+      - 9107:5601
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-I", "http://localhost:5601"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 1m
+
+  logstash:
+    container_name: logstash
+    image: repo.sinacomsys.local:8082/general/logstash:7.17.16
+    hostname: logstash
+    depends_on:
+      - kibana
+      - elasticsearch-1
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch-1:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=elastic
+    networks:
+      - sina-network
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./config/logstash.yml:/usr/share/logstash/config/logstash.yml
+      - ./config/pipelines.yml:/usr/share/logstash/config/pipelines.yml
+      - ./logstash-pipeline:/usr/share/logstash/pipeline/
+      - logstash_data:/usr/share/logstash/data
+    ports:
+      - 5000:5000
+      - 5010:5010
+      - 5020:5020
+      - 5044:5044
+      - 5144:5144
+    restart: always
+
+  filebeat:
+    container_name: filebeat
+    image: repo.sinacomsys.local:8082/general/beats/filebeat:7.17.16
+    hostname: filebeat
+    depends_on:
+      - kibana
+      - elasticsearch-1
+    user: root
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch-1:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=elastic
+      - KIBANA_HOST=http://kibana:5601
+    networks:
+      - sina-network
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./config/filebeat.yml:/usr/share/filebeat/filebeat.yml
+      - filebeat_data:/usr/share/filebeat/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers/:/var/lib/docker/containers/:ro
+      - /var/log/:/var/log/:ro
+      - /var/log/audit/:/var/log/audit/:ro
+    restart: always
+    command: ["--strict.perms=false"]
+    deploy:
+      mode: global
+
+  packetbeat:
+    container_name: packetbeat
+    image: repo.sinacomsys.local:8082/general/beats/packetbeat:7.17.16
+    hostname: packetbeat
+    depends_on:
+      - kibana
+      - elasticsearch-1
+    user: root
+    environment:
+      - ELASTICSEARCH_HOSTS=http://192.168.5.29:9106
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=elastic
+      - KIBANA_HOST=http://192.168.5.29:9107
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./config/packetbeat.yml:/usr/share/packetbeat/packetbeat.yml
+      - packetbeat_data:/usr/share/packetbeat/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: always
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    command: ["--strict.perms=false"]
+    network_mode: host
+    deploy:
+      mode: global
+
+  metricbeat:
+    container_name: metricbeat
+    image: repo.sinacomsys.local:8082/general/beats/metricbeat:7.17.16
+    hostname: metricbeat
+    depends_on:
+      - kibana
+      - elasticsearch-1
+    user: root
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch-1:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=elastic
+      - KIBANA_HOST=http://kibana:5601
+    networks:
+      - sina-network
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./config/metricbeat.yml:/usr/share/metricbeat/metricbeat.yml
+      - metricbeat_data:/usr/share/metricbeat/data
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro
+      - /proc:/hostfs/proc:ro
+      - /:/hostfs:ro
+    restart: always
+    command: ["--strict.perms=false", "-system.hostfs=/hostfs"]
+    deploy:
+      mode: global
+
+  auditbeat:
+    container_name: auditbeat
+    image: repo.sinacomsys.local:8082/general/beats/auditbeat:7.17.16
+    hostname: auditbeat
+    depends_on:
+      - kibana
+      - elasticsearch-1
+    user: root
+    pid: host
+    cap_add:
+      - AUDIT_CONTROL
+      - AUDIT_READ
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch-1:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=elastic
+      - KIBANA_HOST=http://kibana:5601
+    networks:
+      - sina-network
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./config/auditbeat.yml:/usr/share/auditbeat/auditbeat.yml
+      - auditbeat_data:/usr/share/auditbeat/data
+      - /var/log:/var/log:ro
+    command: ["--strict.perms=false"]
+    restart: always
+    deploy:
+      mode: global
+
+  apm-server:
+    container_name: apm-server
+    image: repo.sinacomsys.local:8082/general/apm/apm-server:7.17.16
+    hostname: apm-server
+    depends_on:
+      - kibana
+      - elasticsearch-1
+    networks:
+      - sina-network
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./config/apm-server.yml:/usr/share/apm-server/apm-server.yml
+      - apm-server_data:/usr/share/apm-server/data
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch-1:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=elastic
+      - KIBANA_HOST=http://kibana:5601
+    command: ["--strict.perms=false"]
+    restart: always
+
+  heartbeat:
+    container_name: heartbeat
+    image: repo.sinacomsys.local:8082/general/beats/heartbeat:7.17.16
+    hostname: heartbeat
+    depends_on:
+      - kibana
+      - elasticsearch-1
+    networks:
+      - sina-network
+    user: root
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - ./config/heartbeat.yml:/usr/share/heartbeat/heartbeat.yml
+      - heartbeat_data:/usr/share/heartbeat/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch-1:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=elastic
+      - KIBANA_HOST=http://kibana:5601
+    command: heartbeat -e -strict.perms=false
+    restart: always

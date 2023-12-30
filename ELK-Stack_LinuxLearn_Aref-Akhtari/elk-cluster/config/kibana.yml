@@ -1,0 +1,15 @@
+server.host: "0.0.0.0"
+server.name: kibana
+server.publicBaseUrl: "${KIBANA_HOST}"
+server.shutdownTimeout: "5s"
+
+elasticsearch.hosts: [ "${ELASTICSEARCH_HOSTS}" ]
+elasticsearch.username: "${ELASTICSEARCH_USERNAME}"
+elasticsearch.password: "${ELASTICSEARCH_PASSWORD}"
+
+monitoring.ui.container.elasticsearch.enabled: true
+xpack.security.enabled: true
+xpack.monitoring.collection.enabled: true
+xpack.security.audit.enabled: true
+
+xpack.security.http.ssl.enabled: false

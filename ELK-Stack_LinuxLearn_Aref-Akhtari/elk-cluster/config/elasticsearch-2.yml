@@ -1,0 +1,15 @@
+network.host: 0.0.0.0
+cluster.name: docker-cluster
+
+node.name: elasticsearch-2
+node.master: true
+node.data: true
+node.ingest: true
+node.attr.temp: warm
+
+discovery.seed_hosts: ['elasticsearch-1','elasticsearch-2','elasticsearch-3']
+cluster.initial_master_nodes: ['elasticsearch-1']
+
+xpack.security.enabled: true
+xpack.license.self_generated.type: basic
+xpack.monitoring.collection.enabled: true

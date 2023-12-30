@@ -1,0 +1,79 @@
+#============================== Network device ================================
+packetbeat.interfaces.device: any
+packetbeat.interfaces.snaplen: 1514
+packetbeat.interfaces.type: af_packet
+packetbeat.interfaces.buffer_size_mb: 100
+
+#================================== Flows =====================================
+packetbeat.flows:
+  timeout: 30s
+  period: 10s
+
+#========================== Transaction protocols =============================
+packetbeat.protocols.icmp:
+  enabled: true
+
+packetbeat.protocols.http:
+  ports: [80, 5601, 9200, 8080, 8081, 5000, 8002]
+
+packetbeat.protocols.memcache:
+  ports: [11211]
+
+packetbeat.protocols.mysql:
+  ports: [3306]
+
+packetbeat.protocols.pgsql:
+  ports: [5432]
+
+packetbeat.protocols.redis:
+  ports: [6379]
+
+packetbeat.protocols.thrift:
+  ports: [9090]
+
+packetbeat.protocols.mongodb:
+  ports: [27017]
+
+packetbeat.protocols.cassandra:
+  ports: [9042]
+
+packetbeat.protocols.tls:
+  ports: [443, 993, 995, 5223, 8443, 8883, 9243]
+
+packetbeat.protocols.sip:
+  ports: [5060]
+
+packetbeat.protocols.dhcpv4:
+  ports: [67, 68]
+
+packetbeat.protocols.nfs:
+  ports: [2049]
+
+#================================ Processors ===================================
+# The following example enriches each event with metadata from the cloud provider about the host machine.
+processors:
+  - add_cloud_metadata: ~
+  - add_docker_metadata:
+      host: "unix:///var/run/docker.sock"
+  - add_locale: ~
+
+#========================== Elasticsearch output ===============================
+output.elasticsearch:
+  hosts: '${ELASTICSEARCH_HOSTS}'
+  username: '${ELASTICSEARCH_USERNAME}'
+  password: '${ELASTICSEARCH_PASSWORD}'
+
+#============================== Dashboards =====================================
+setup.dashboards:
+  enabled: true
+
+#============================== Kibana =========================================
+setup.kibana:
+  host: '${KIBANA_HOST}'
+  username: '${ELASTICSEARCH_USERNAME}'
+  password: '${ELASTICSEARCH_PASSWORD}'
+
+#============================== Xpack Monitoring ===============================
+xpack.monitoring:
+  enabled: true
+  elasticsearch:
